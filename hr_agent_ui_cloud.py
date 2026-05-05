@@ -1,103 +1,145 @@
 import os
 import tempfile
 import streamlit as st
-from google import genai
 
 from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_core.prompts import PromptTemplate
 
 # -------------------------------------------------
-# 🔑 GOOGLE API KEY
+# 🔑 OPENAI API KEY (hard-coded for demo)
 # -------------------------------------------------
-client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
+os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+
 
 # -------------------------------------------------
-# 🖥️ Streamlit App
+# 🖥️ Streamlit App Config
 # -------------------------------------------------
 st.set_page_config(page_title="HR Resume Screening AI Agent", layout="wide")
+st.title("🤖 HR Resume Screening AI Agent")
+st.write(
+    "Upload resumes, paste a Job Description, and let the AI agent "
+    "shortlist candidates using GenAI + Agentic reasoning."
+)
 
-st.title("🤖 HR Resume Screening AI Agent (Gemini)")
-st.write("Upload resumes and evaluate candidates using AI")
-
+# -------------------------------------------------
+# 📤 Upload Resume PDFs (UI ONLY)
+# -------------------------------------------------
 uploaded_files = st.file_uploader(
-    "Upload Resume PDFs",
+    "Upload multiple resume PDFs",
     type=["pdf"],
     accept_multiple_files=True
 )
 
-job_description = st.text_area("Paste Job Description", height=180)
+# -------------------------------------------------
+# 📝 Job Description Input
+# -------------------------------------------------
+job_description = st.text_area(
+    "Paste Job Description",
+    height=180,
+    placeholder="Example: Looking for a Data Scientist with Python, ML, SQL, and GenAI exposure..."
+)
 
 # -------------------------------------------------
 # ▶️ Run Button
 # -------------------------------------------------
-if st.button("Run AI Screening"):
+if st.button("Run AI Resume Screening"):
 
     if not uploaded_files:
-        st.warning("Upload resumes")
+        st.warning("Please upload at least one resume PDF.")
         st.stop()
 
     if not job_description.strip():
-        st.warning("Enter Job Description")
+        st.warning("Please provide a Job Description.")
         st.stop()
 
-    resumes = []
+    # -------------------------------------------------
+    # 📄 Load Uploaded Resumes
+    # -------------------------------------------------
+    documents = []
 
-    # Load PDFs
-    for file in uploaded_files:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(file.read())
-            tmp_path = tmp.name
+    with st.spinner("Loading resumes..."):
+        for file in uploaded_files:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(file.read())
+                tmp_path = tmp.name
 
-        loader = PyPDFLoader(tmp_path)
-        docs = loader.load()
+            loader = PyPDFLoader(tmp_path)
+            docs = loader.load()
 
-        full_text = " ".join([doc.page_content for doc in docs])
+            for doc in docs:
+                doc.metadata["candidate_file"] = file.name
 
-        resumes.append({
-            "name": file.name,
-            "content": full_text
-        })
+            documents.extend(docs)
+            os.remove(tmp_path)
 
-        os.remove(tmp_path)
-
-    st.success(f"{len(resumes)} resumes loaded")
+    st.success(f"Loaded {len(documents)} resume pages")
 
     # -------------------------------------------------
-    # 📊 Evaluation
+    # 🧠 Create Vector Store (AI Memory)
     # -------------------------------------------------
-    for idx, r in enumerate(resumes, start=1):
+    with st.spinner("Creating AI memory (vector database)..."):
+        embeddings = OpenAIEmbeddings()
+        vectorstore = FAISS.from_documents(documents, embeddings)
 
-        with st.expander(f"Candidate {idx} — {r['name']}"):
+    # -------------------------------------------------
+    # 🔍 Retrieve Top Matching Resumes
+    # -------------------------------------------------
+    with st.spinner("Finding best matching candidates..."):
+        top_docs = vectorstore.similarity_search(job_description, k=5)
 
-            prompt = f"""
+    st.info(f"Evaluating top {len(top_docs)} candidates")
+
+    # -------------------------------------------------
+    # 🤖 HR AI Agent Prompt
+    # -------------------------------------------------
+    prompt = PromptTemplate(
+        input_variables=["resume", "jd"],
+        template="""
 You are an HR AI Agent.
 
-Evaluate this resume based on the job description.
+Goal: Evaluate the resume against the Job Description.
 
 Job Description:
-{job_description}
+{jd}
 
 Resume:
-{r['content']}
+{resume}
 
-Give:
-1. Score /10
-2. Strengths
-3. Missing skills
-4. Final decision
+Tasks:
+1. Score the candidate out of 10
+2. Mention key strengths
+3. Mention missing or weak areas
+4. Final recommendation: Shortlist / Maybe / Reject
+
+Be concise, unbiased, and professional.
 """
+    )
 
-            try:
-                response = client.models.generate_content(
-                    model="gemini-1.5-flash",
-                    contents=prompt
+    llm = ChatOpenAI(temperature=0)
+
+    # -------------------------------------------------
+    # 📊 Evaluate Candidates
+    # -------------------------------------------------
+    st.subheader("📊 AI Evaluation Results")
+
+    for idx, doc in enumerate(top_docs, start=1):
+        candidate = doc.metadata.get("candidate_file", "Unknown")
+
+        with st.expander(f"Candidate {idx} — {candidate}"):
+            with st.spinner("Evaluating candidate..."):
+                response = llm.invoke(
+                    prompt.format(
+                        resume=doc.page_content,
+                        jd=job_description
+                    )
                 )
 
-                st.write(response.text)
+            st.write(response.content)
 
-            except Exception as e:
-                st.error("Error processing resume")
-                st.write(str(e))
-
+# -------------------------------------------------
 # Footer
+# -------------------------------------------------
 st.markdown("---")
-st.caption("Gemini AI Resume Screener")
+st.caption("Agentic AI Demo | HR Resume Screening | Python · LangChain · Streamlit")

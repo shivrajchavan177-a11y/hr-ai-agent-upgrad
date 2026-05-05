@@ -1,6 +1,4 @@
 streamlit
-langchain
+google-generativeai
 langchain-community
-langchain-openai
-faiss-cpu
 pypdf

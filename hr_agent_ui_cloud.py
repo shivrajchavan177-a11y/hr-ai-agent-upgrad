@@ -1,30 +1,27 @@
 import os
 import tempfile
 import streamlit as st
+import google.generativeai as genai
 
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_core.prompts import PromptTemplate
 
 # -------------------------------------------------
-# 🔑 OPENAI API KEY (hard-coded for demo)
+# 🔑 GOOGLE API KEY
 # -------------------------------------------------
-os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # -------------------------------------------------
 # 🖥️ Streamlit App Config
 # -------------------------------------------------
 st.set_page_config(page_title="HR Resume Screening AI Agent", layout="wide")
-st.title("🤖 HR Resume Screening AI Agent")
+st.title("🤖 HR Resume Screening AI Agent (Gemini Powered)")
 st.write(
     "Upload resumes, paste a Job Description, and let the AI agent "
-    "shortlist candidates using GenAI + Agentic reasoning."
+    "shortlist candidates using Google Gemini AI."
 )
 
 # -------------------------------------------------
-# 📤 Upload Resume PDFs (UI ONLY)
+# 📤 Upload Resume PDFs
 # -------------------------------------------------
 uploaded_files = st.file_uploader(
     "Upload multiple resume PDFs",
@@ -38,7 +35,7 @@ uploaded_files = st.file_uploader(
 job_description = st.text_area(
     "Paste Job Description",
     height=180,
-    placeholder="Example: Looking for a Data Scientist with Python, ML, SQL, and GenAI exposure..."
+    placeholder="Example: Looking for a Data Scientist with Python, ML, SQL..."
 )
 
 # -------------------------------------------------
@@ -55,7 +52,7 @@ if st.button("Run AI Resume Screening"):
         st.stop()
 
     # -------------------------------------------------
-    # 📄 Load Uploaded Resumes
+    # 📄 Load Resumes
     # -------------------------------------------------
     documents = []
 
@@ -68,78 +65,59 @@ if st.button("Run AI Resume Screening"):
             loader = PyPDFLoader(tmp_path)
             docs = loader.load()
 
-            for doc in docs:
-                doc.metadata["candidate_file"] = file.name
+            # Combine pages into one resume text
+            full_text = " ".join([doc.page_content for doc in docs])
 
-            documents.extend(docs)
+            documents.append({
+                "name": file.name,
+                "content": full_text
+            })
+
             os.remove(tmp_path)
 
-    st.success(f"Loaded {len(documents)} resume pages")
+    st.success(f"Loaded {len(documents)} resumes")
 
     # -------------------------------------------------
-    # 🧠 Create Vector Store (AI Memory)
+    # 🤖 Gemini Model
     # -------------------------------------------------
-    with st.spinner("Creating AI memory (vector database)..."):
-        embeddings = OpenAIEmbeddings()
-        vectorstore = FAISS.from_documents(documents, embeddings)
-
-    # -------------------------------------------------
-    # 🔍 Retrieve Top Matching Resumes
-    # -------------------------------------------------
-    with st.spinner("Finding best matching candidates..."):
-        top_docs = vectorstore.similarity_search(job_description, k=5)
-
-    st.info(f"Evaluating top {len(top_docs)} candidates")
-
-    # -------------------------------------------------
-    # 🤖 HR AI Agent Prompt
-    # -------------------------------------------------
-    prompt = PromptTemplate(
-        input_variables=["resume", "jd"],
-        template="""
-You are an HR AI Agent.
-
-Goal: Evaluate the resume against the Job Description.
-
-Job Description:
-{jd}
-
-Resume:
-{resume}
-
-Tasks:
-1. Score the candidate out of 10
-2. Mention key strengths
-3. Mention missing or weak areas
-4. Final recommendation: Shortlist / Maybe / Reject
-
-Be concise, unbiased, and professional.
-"""
-    )
-
-    llm = ChatOpenAI(temperature=0)
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     # -------------------------------------------------
     # 📊 Evaluate Candidates
     # -------------------------------------------------
     st.subheader("📊 AI Evaluation Results")
 
-    for idx, doc in enumerate(top_docs, start=1):
-        candidate = doc.metadata.get("candidate_file", "Unknown")
+    for idx, doc in enumerate(documents, start=1):
 
-        with st.expander(f"Candidate {idx} — {candidate}"):
+        with st.expander(f"Candidate {idx} — {doc['name']}"):
             with st.spinner("Evaluating candidate..."):
-                response = llm.invoke(
-                    prompt.format(
-                        resume=doc.page_content,
-                        jd=job_description
-                    )
-                )
 
-            st.write(response.content)
+                prompt = f"""
+You are an HR AI Agent.
+
+Evaluate the resume against the Job Description.
+
+Job Description:
+{job_description}
+
+Resume:
+{doc['content']}
+
+Tasks:
+1. Score the candidate out of 10
+2. Key strengths
+3. Missing skills
+4. Final decision: Shortlist / Maybe / Reject
+
+Keep it concise and professional.
+"""
+
+                response = model.generate_content(prompt)
+
+            st.write(response.text)
 
 # -------------------------------------------------
 # Footer
 # -------------------------------------------------
 st.markdown("---")
-st.caption("Agentic AI Demo | HR Resume Screening | Python · LangChain · Streamlit")
+st.caption("HR AI Agent | Powered by Gemini | Streamlit")

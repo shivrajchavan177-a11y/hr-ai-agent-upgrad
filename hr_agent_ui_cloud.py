@@ -79,8 +79,7 @@ if st.button("Run AI Resume Screening"):
     # -------------------------------------------------
     # 🤖 Gemini Model
     # -------------------------------------------------
-    model = genai.GenerativeModel("gemini-pro")
-
+    model = genai.GenerativeModel("gemini-1.5-flash-latest")
     # -------------------------------------------------
     # 📊 Evaluate Candidates
     # -------------------------------------------------

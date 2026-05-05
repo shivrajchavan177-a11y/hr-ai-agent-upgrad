@@ -14,10 +14,10 @@ genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 # 🖥️ Streamlit App Config
 # -------------------------------------------------
 st.set_page_config(page_title="HR Resume Screening AI Agent", layout="wide")
-st.title("🤖 HR Resume Screening AI Agent (Gemini Powered)")
+
+st.title("🤖 HR Resume Screening AI Agent (Gemini)")
 st.write(
-    "Upload resumes, paste a Job Description, and let the AI agent "
-    "shortlist candidates using Google Gemini AI."
+    "Upload resumes, paste a Job Description, and let AI shortlist candidates."
 )
 
 # -------------------------------------------------
@@ -34,8 +34,7 @@ uploaded_files = st.file_uploader(
 # -------------------------------------------------
 job_description = st.text_area(
     "Paste Job Description",
-    height=180,
-    placeholder="Example: Looking for a Data Scientist with Python, ML, SQL..."
+    height=180
 )
 
 # -------------------------------------------------
@@ -54,7 +53,7 @@ if st.button("Run AI Resume Screening"):
     # -------------------------------------------------
     # 📄 Load Resumes
     # -------------------------------------------------
-    documents = []
+    resumes = []
 
     with st.spinner("Loading resumes..."):
         for file in uploaded_files:
@@ -65,31 +64,32 @@ if st.button("Run AI Resume Screening"):
             loader = PyPDFLoader(tmp_path)
             docs = loader.load()
 
-            # Combine pages into one resume text
+            # Combine all pages into one text
             full_text = " ".join([doc.page_content for doc in docs])
 
-            documents.append({
+            resumes.append({
                 "name": file.name,
                 "content": full_text
             })
 
             os.remove(tmp_path)
 
-    st.success(f"Loaded {len(documents)} resumes")
+    st.success(f"Loaded {len(resumes)} resumes")
 
     # -------------------------------------------------
     # 🤖 Gemini Model
     # -------------------------------------------------
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-pro")
 
     # -------------------------------------------------
     # 📊 Evaluate Candidates
     # -------------------------------------------------
     st.subheader("📊 AI Evaluation Results")
 
-    for idx, doc in enumerate(documents, start=1):
+    for idx, resume in enumerate(resumes, start=1):
 
-        with st.expander(f"Candidate {idx} — {doc['name']}"):
+        with st.expander(f"Candidate {idx} — {resume['name']}"):
+
             with st.spinner("Evaluating candidate..."):
 
                 prompt = f"""
@@ -101,7 +101,7 @@ Job Description:
 {job_description}
 
 Resume:
-{doc['content']}
+{resume['content']}
 
 Tasks:
 1. Score the candidate out of 10
@@ -109,15 +109,19 @@ Tasks:
 3. Missing skills
 4. Final decision: Shortlist / Maybe / Reject
 
-Keep it concise and professional.
+Give clear and professional output.
 """
 
-                response = model.generate_content(prompt)
+                try:
+                    response = model.generate_content(prompt)
+                    st.write(response.text)
 
-            st.write(response.text)
+                except Exception as e:
+                    st.error("Error while processing this resume.")
+                    st.write(str(e))
 
 # -------------------------------------------------
 # Footer
 # -------------------------------------------------
 st.markdown("---")
-st.caption("HR AI Agent | Powered by Gemini | Streamlit")
+st.caption("HR AI Agent | Gemini Powered | Streamlit")
